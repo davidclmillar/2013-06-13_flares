@@ -5,6 +5,6 @@ Code for analysis and making figures for a paper about B-class flares on 2013-06
 
 - use ```get_velocities.py``` to calculate Doppler shifts in CRISP data
 
-- ```fit_spectra``` runs spectrum fitting on intensity or velocity data
+- ```fit_spectra.py``` runs spectrum fitting on intensity or velocity data
 
-- ```parallel_compare``` compares the results of the fits to get preferred models
+- ```parallel_compare.py``` compares the results of the fits to get preferred models
