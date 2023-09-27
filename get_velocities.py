@@ -1,5 +1,6 @@
 import numpy as np
 from helita.io import lp
+import time
 import os
 import kappa_fitting as k
 import sstanalysis as sst
@@ -10,30 +11,24 @@ from tqdm import tqdm
 import warnings
 warnings.filterwarnings("ignore")
 
-# read in data
-data, sp, C = sst.read_in_data('8542')
-#sp is the wavelength array
+start_time = time.time() # simple timer
 
+# read in data
+data, sp, C = sst.read_in_data('8542') #or '5250'
 
 # ----- mask ----- #
+# this prevents us analysing pixels which don't contain any actual data
 mask = sst.get_mask()
 supermask = mask[:,:,0]*mask[:,:,-1]
 # ---------------- #
 
-args = np.where(supermask==1)
+args = np.where(supermask==1) # gets the indices of target pixels
 
-# get no cores
-no_cores = os.cpu_count() - 1
-print('no cores : {}'.format(no_cores))
-# total no pixels
-total = len(args[0])
-print('total pixels : {}'.format(total))
+total = len(args[0]) # total no pixels
 
-print('pixels per core = %.2f'%(total/no_cores)) 
-print('So we need %d cores with %d pixels and %d cores with %d pixels.\n ' \
-      %(total % no_cores, np.ceil(total/no_cores),no_cores - (total % no_cores), np.floor(total/no_cores)))
+no_cores = os.cpu_count() - 1 # set number of cores to use for processing
 
-# this list will have all of the minimum values that each core will begin at, once the array is flattened 
+# this splits up all of the target pixels so each core works on a roughly equal amount
 mins = np.zeros(shape=no_cores+1)
 i = 0
 for a in range(1,no_cores):
@@ -45,90 +40,104 @@ for a in range(1,no_cores):
 mins[-1] = total
 mins = mins.astype(int)
 
-wl0=8542 # central wavelength
-#wl0 = 5250
-wlvs = sp[:-1] - wl0 #\delta \lambda
-#left/right determines the width of the window to fit over
-left, right = 3, 8 # 4, 7  for 5250. use 3, 8 for 8542
-xvals = wlvs[left:right]
-T=data.shape[2] # size of the time axis
+# settings for the velocity measurement
+wl0=8542 # or 5250
+wlvs = sp[:-1] - wl0 # extract relevant part of wavelength array (use all of sp for 5250)
+left, right = 3, 8 # the window the first fit is done over
+# 4/7 for 5250. use 3/8 for 8542
+xvals = wlvs[left:right] 
+T=data.shape[2] # number of timesteps
 
+# function for doing all velocities for one pixel
 def get_vs(row,col,T=T):
-    ans0=0
-    result = np.zeros(shape=(T)) # store the results
-    dodge  = np.zeros(shape=(T)) # record if it is not a simple fit
+    ans0=0 # tracks the last answer (starts at 0)
+    result = np.zeros(shape=(T))
+    dodge  = np.zeros(shape=(T)) # tracks how many non-standard line shapes encountered for each pixel
     for i in range(0,T):
         fail = False
-        profi = data[row,col,i,0,:-1] # extract the full spectral line profile
-        profi=profi/np.max(np.abs(profi)) # normalise
-        prof = profi[left:right] # select window for fitting
-        r = np.polyfit(xvals,prof,2) # quadratic fit
-        ans = -r[1]/2/r[0] # -b/2a
+        profi = data[row,col,i,0,:-1] # whole line profile
+        profi=profi/np.max(np.abs(profi)) # normalise profile
+        prof = profi[left:right] # extract the part for fitting
+        r = np.polyfit(xvals,prof,2) # can use curve_fit if you like
+        ans = -r[1]/2/r[0] # x0=-b/2a
         fitted = r[0]*xvals**2 + r[1]*xvals + r[2]
-        chi2 = np.sum((fitted - prof)**2) # calculate a goodness of fit
-      
+        chi2 = np.sum((fitted - prof)**2) # not really chi2, but similar
+        # conditions for good fit
         if chi2 > 2e-3:
             fail = True
         if (ans > 0.2): # use 0.2 for 8542/0.1 for 5250
             fail = True
         if (ans < -0.2): # 0.2 for 8542/0.1 for 5250
             fail = True
+        # if not a good fit, try again at a turning point
         if fail:
+            fail=False
             dodge[i]=1
             dp = np.diff(profi)
-            tps = np.where(dp[:-1]*dp[1:] < 0)[0]+1 # identify turning points
+            tps = np.where(dp[:-1]*dp[1:] < 0)[0]+1 # turning points
             if len(tps)==0:
                 fail=True
                 cent=0
                 ans=1
             else:
-                cent = tps[np.argmin(np.abs(wlvs[tps]-ans0))] # new centre point for a second fit
+                cent = tps[np.argmin(np.abs(wlvs[tps]-ans0))]
 
-            if cent<1 or cent>10: # if trying to fit too close to edge of profile
+            if cent<1 or cent>10:
                 ans=1.
             else:
-              # second fit attempt
-                r = np.polyfit(wlvs[cent-1:cent+2],profi[cent-1:cent+2],2)
+                  # trying another fit
+                newprof = profi[cent-1:cent+2]
+                newxvals = wlvs[cent-1:cent+2]
+                
+                r = np.polyfit(newxvals,newprof,2)
                 ans = -r[1]/2/r[0]
+                
+                newfitted = r[0]*xvals**2 + r[1]*xvals + r[2]
+                newchi2 = np.sum((fitted - prof)**2)
+                
+                if newchi2 > 1e-3:
+                    ans=1
 
             if (ans > 0.5): # 0.5 for 8542/0.1 for 5250
                 fail = True
             if (ans < -0.5): # 0.5 for 8542/0.1 for 5250
                 fail = True
             if fail:
-                ans=result[i-1] # set answer to previous value
+                ans=ans0 # if the process didn't work, set to the same value as last
                 
-        result[i] =ans
-        ans0=ans 
+        result[i] =ans # save result as we go
+        ans0=ans
     return result, dodge
 
-
-def function(mini,maxi): # each core gets fed this function
+# this is a function which each core will run simultaneously
+def function(mini,maxi):
     res = []
     for i in range(maxi-mini):
-        if i%100==0:
-            print('\r heyah'+str(i),end="")
         row, col = args[0][i+mini], args[1][i+mini]
         res.append(get_vs(row,col))
     return res
 
-# parallel execution
+# parallel computation
 with concurrent.futures.ProcessPoolExecutor(max_workers=no_cores) as executor:
     futures=[executor.submit(function, mins[j], mins[j+1]) for j in range(len(mins)-1)]
     for f in tqdm(concurrent.futures.as_completed(futures), total=len(futures)):
         pass #This gets a progress bar
-# get results for each core
+
+# get all results
 results=[res.result() for res in futures]
 
-#save the indices
+# the indices (tracking which pixel is which)
 argy = [(args[0][a],args[1][a]) for a in range(len(args[0]))]
 
-#combine the indices (pixel values) and results into one thing
+#combine all results into one object
 bigr = []
 [bigr.extend(r) for r in results]
 
-save_this = [argy,bigr]
-
-savepath = './'
-
+#---------- save results -----------------
+save_this = [argy,bigr] #save indices and results together
+savepath = 'your/path/'
+if not os.path.exists(savepath):
+    os.makedirs(savepath)
 pickle.dump(save_this, open(savepath+'velocities.p',"wb"))
+
+print('Completed after %.2f minutes'%((time.time()-start_time)/60))
