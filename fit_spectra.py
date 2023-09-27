@@ -10,7 +10,7 @@ from tqdm import tqdm
 import warnings
 warnings.filterwarnings("ignore")
 
-line='5250' # or 8542
+line='8542' # or 5250
 
 wl0, wln = 4,7 # wavelengths to extract between
 t0, tn   = 0,111 # time values to extract between
@@ -22,25 +22,22 @@ data, sp, C = sst.read_in_data(line) # read in intensity data
 #data = pickle.load(open('velocities.p','rb'))
 
 # ----- mask ----- #
+# this determines which pixels are useful (some don't contain any data)
+# if you are using velocity data from get_velocities.py this will already have been done
 mask = sst.get_mask()
 mask_first=mask[:,:,0 ]
 mask_last =mask[:,:,-1]
 supermask = mask_last*mask_first
 # ---------------- #
-args = np.where(supermask==1)
+args = np.where(supermask==1) # the indices of target pixels
 
 
 # get no cores
 no_cores = os.cpu_count() - 2
-print('no cores : {}'.format(no_cores))
+
 # total no pixels
 total = len(args[0])
-#total = len(data[0])
-print('total pixels : {}'.format(total))
-
-print('pixels per core = %.2f'%(total/no_cores)) 
-print('So we need %d cores with %d pixels and %d cores with %d pixels.\n ' \
-      %(total % no_cores, np.ceil(total/no_cores),no_cores - (total % no_cores), np.floor(total/no_cores)))
+#total = len(data[0]) # this is better if you loaded velocity results
 
 # this list will have all of the minimum values that each core will begin at, once the array is flattened 
 mins = np.zeros(shape=no_cores+1)
@@ -53,9 +50,11 @@ for a in range(1,no_cores):
         mins[a] = mins[a-1] + np.floor(total/no_cores)
 mins[-1] = total
 mins = mins.astype(int)
-  
+
 # function to be used for each timeseries
 def fit(I):
+      # try fitting each spectrum model individually. failure tracked by filling with 1e10
+      # model parameters are returned one per model, WRSes returned as a single object
     x = k.timeseries(I,dt=30.7)
     WRS_results = np.zeros(shape=(3))
     try:
@@ -90,7 +89,7 @@ def function(mini,maxi):
         # --------------------------------------------------------
         
         # for velocities
-        #I_s = data[1][i+mini][0] # for velocities, the 0 index is the velocities
+        #I_s = data[1][i+mini][0][t0:tn]# for velocities, the 0 index is the velocities
         # --------------------------------------------------------
         
         # for either
