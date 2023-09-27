@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 from scipy import stats
 import matplotlib.dates as dates
 from datetime import datetime,timedelta
-
+# backbone of the spectral analysis, plus some useful functions
+# intial guesses/ boundaries for curve fit are just what worked for me (trial and error), and may need changed for different datasets
 
 # ----------------------------------
 # red + white noise background model
