@@ -24,17 +24,10 @@ m = k.siglvl(sg,len(freqs))
 result_path='fitting_results.p'
 p = pickle.load(open(result_path,'rb')) # load in the results of the fitting
 
-total = len(p[0])
-print('starting: ',result_path)
-# get no cores
-no_cores = os.cpu_count() - 1
-print('no cores : {}'.format(no_cores))
 # total no pixels
-print('total pixels : {}'.format(total))
-
-print('pixels per core = %.2f'%(total/no_cores)) 
-print('So we need %d cores with %d pixels and %d cores with %d pixels.\n ' \
-      %(total % no_cores, np.ceil(total/no_cores),no_cores - (total % no_cores), np.floor(total/no_cores)))
+total = len(p[0])
+# set no cores for analysis
+no_cores = os.cpu_count() - 1
 
 # this list will have all of the minimum values that each core will begin at, once the array is flattened 
 mins = np.zeros(shape=no_cores+1)
