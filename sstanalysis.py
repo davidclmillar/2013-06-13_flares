@@ -3,6 +3,7 @@ from helita.io import lp
 import os
 from scipy.io.idl import readsav
 # functions which read in data, extract timesteps, find B field based on the weak field approximation
+# file names and data paths will have to be changed if using these for different data
 
 # read in data
 def read_in_data(line,path='/path/to/data/'):
